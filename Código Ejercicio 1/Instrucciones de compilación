@@ -1,1 +1,29 @@
+Requisitos previos para la compilación:
+- Visual Studio Code
+- PlatformIO instalado
+- Placa ESP32 compatible
+- Cable USB
+- LED y resistencia conectados al GPIO 2 (Opcional ya que se enciende el LED interno de la esp32)
 
+Configuración del proyecto:
+Crear un proyecto en PlatformIO seleccionando
+- Board: esp32doit-devkit-v1
+- Framework: ESP-IDF
+
+Configurar el archivo platformio.ini con el baud rate adecuado:
+- monitor_speed = 115200
+- monitor_filters = send_on_enter, colorize
+
+Compilación:
+Desde PlatformIO, seleccionar Build para compilar el proyecto. O desde la terminal: pio run
+- Conectar el ESP32 al puerto USB.
+- Seleccionar Upload en PlatformIO.
+
+Ejecución y pruebas:
+Abrir el Monitor Serial desde PlatformIO y verificar el mensaje:
+"Sistema listo. Ingrese comandos:"
+
+
+Una vez dado esto, ingresar comandos predeterminados por el monitor serial y observar las respuestas del sistema.
+
+Verificar el comportamiento del LED físico en el GPIO 2.
