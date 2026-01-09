@@ -1,1 +1,112 @@
-.
+#include <stdio.h>
+#include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/uart.h"
+#include "driver/gpio.h"
+#include "esp_log.h"
+
+#define UART_USB       UART_NUM_0
+#define UART_BUF_SIZE  128
+#define UART_BAUDRATE  115200
+
+#define LED_GPIO       GPIO_NUM_2
+
+static int command_count = 0;
+static const char *TAG = "UART_CMD";
+
+// ================= LED =================
+void init_led(void) {
+    gpio_reset_pin(LED_GPIO);
+    gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_level(LED_GPIO, 0);
+}
+
+// ================= UART =================
+void init_uart(void) {
+    uart_config_t uart_config = {
+        .baud_rate = UART_BAUDRATE,
+        .data_bits = UART_DATA_8_BITS,
+        .parity    = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+    };
+
+    uart_driver_install(UART_USB, UART_BUF_SIZE * 2, 0, 0, NULL, 0);
+    uart_param_config(UART_USB, &uart_config);
+}
+
+// ================= COMMANDS =================
+void send_response(const char *msg) {
+    uart_write_bytes(UART_USB, msg, strlen(msg));
+}
+
+void process_command(char *cmd) {
+    command_count++;
+
+    if (strcmp(cmd, "status") == 0) {
+        send_response("OK: Sistema activo\r\n");
+    }
+    else if (strcmp(cmd, "ledon") == 0) {
+        gpio_set_level(LED_GPIO, 1);
+        send_response("OK: LED encendido\r\n");
+    }
+    else if (strcmp(cmd, "ledoff") == 0) {
+        gpio_set_level(LED_GPIO, 0);
+        send_response("OK: LED apagado\r\n");
+    }
+    else if (strcmp(cmd, "info") == 0) {
+        char msg[128];
+        snprintf(msg, sizeof(msg),
+                 "INFO:\r\n Baudrate: %d\r\n Comandos: %d\r\n",
+                 UART_BAUDRATE, command_count);
+        send_response(msg);
+    }
+    else if (strcmp(cmd, "reset") == 0) {
+        command_count = 0;
+        send_response("OK: Contadores reiniciados\r\n");
+    }
+    else {
+        send_response("ERROR: Comando desconocido\r\n");
+    }
+}
+
+// ================= UART TASK =================
+void uart_task(void *arg) {
+    uint8_t rx;
+    char buffer[64];
+    int index = 0;
+
+    send_response("\r\nSistema listo. Ingrese comandos:\r\n");
+
+    while (1) {
+        int len = uart_read_bytes(UART_USB, &rx, 1, pdMS_TO_TICKS(100));
+
+        if (len > 0) {
+            if (rx == '\r' || rx == '\n') {
+                buffer[index] = '\0';
+                if (index > 0) {
+                    process_command(buffer);
+                }
+                index = 0;
+            } else if (index < sizeof(buffer) - 1) {
+                buffer[index++] = rx;
+            }
+        }
+    }
+}
+
+// ================= MAIN =================
+void app_main(void) {
+    init_led();
+    init_uart();
+
+    xTaskCreate(
+        uart_task,
+        "uart_task",
+        4096,
+        NULL,
+        5,
+        NULL
+    );
+}
