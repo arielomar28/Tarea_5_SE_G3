@@ -1,1 +1,9 @@
+La compilación y simulación del sistema multitarea se realizaron utilizando Visual Studio Code como entorno de desarrollo, junto con la extensión oficial de Wokwi, empleando el framework Arduino sobre una placa ESP32 simulada. Este enfoque permitió desarrollar, compilar y ejecutar el sistema sin necesidad de hardware físico.
 
+En primer lugar, se creó un nuevo proyecto en Visual Studio Code mediante la extensión de Wokwi, seleccionando el ESP32 como microcontrolador y el framework Arduino como entorno de desarrollo. El código principal de la aplicación se implementó en el archivo main.cpp, donde se incluyeron las librerías necesarias y se definieron las tareas concurrentes gestionadas por FreeRTOS.
+
+Adicionalmente, se configuraron los archivos propios de la simulación. El archivo diagram.json se utilizó para definir la conexión del hardware virtual, estableciendo el enlace entre el pin GPIO 26 del ESP32 y un LED externo con su respectiva resistencia. Por su parte, el archivo wokwi.toml permitió configurar el entorno de simulación y vincular correctamente el proyecto con la plataforma Wokwi.
+
+Una vez estructurado el proyecto, la compilación se realizó directamente desde Visual Studio Code al iniciar la simulación mediante la opción Run Simulation de Wokwi. Durante este proceso, el compilador de Arduino se encarga de construir el proyecto, incluyendo el kernel de FreeRTOS, el cual ya se encuentra integrado de forma nativa en el core del ESP32 para Arduino.
+
+Finalmente, al ejecutar la simulación, el sistema entra en funcionamiento bajo el control del planificador de FreeRTOS. Se puede observar el parpadeo del LED con una frecuencia definida y, simultáneamente, la salida periódica de mensajes en el monitor serial, lo que confirma que la compilación fue exitosa y que las tareas se ejecutan de manera concurrente sin bloqueos.
