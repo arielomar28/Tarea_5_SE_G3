@@ -1,1 +1,172 @@
+// Ejercicio 4 - Sistema UART + FreeRTOS (ESP32, Arduino core)
+
+#ifndef LED_BUILTIN
+  #define LED_BUILTIN 2
+#endif
+
+#include <Arduino.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
+#include "freertos/semphr.h"
+
+// Pines y configuración
+const int LED_PIN = 2;
+const uint32_t SERIAL_BAUD = 115200;
+
+// Tipos de comando
+enum CommandType {
+  CMD_NONE = 0,
+  CMD_LED_ON,
+  CMD_LED_OFF,
+  CMD_STATUS,
+  CMD_SETFREQ,
+  CMD_UNKNOWN
+};
+
+typedef struct {
+  CommandType type;
+  int value;
+} Command_t;
+
+// Recursos FreeRTOS
+QueueHandle_t cmdQueue;
+SemaphoreHandle_t statusSemaphore;
+volatile uint32_t reportIntervalMs = 5000; // 5s por defecto
+
+// Prototipos
+void uartTask(void* pvParameters);
+void controlTask(void* pvParameters);
+void reporterTask(void* pvParameters);
+
+// Parser simple de comandos
+Command_t parseCommand(const char* s) {
+  Command_t cmd; cmd.type = CMD_UNKNOWN; cmd.value = 0;
+  while (*s == ' ') ++s;
+  if (strcasecmp(s, "led on") == 0) { cmd.type = CMD_LED_ON; return cmd; }
+  if (strcasecmp(s, "led off") == 0) { cmd.type = CMD_LED_OFF; return cmd; }
+  if (strcasecmp(s, "status") == 0) { cmd.type = CMD_STATUS; return cmd; }
+  if (strncasecmp(s, "setfreq ", 8) == 0) {
+    long v = atol(s + 8);
+    if (v > 0) { cmd.type = CMD_SETFREQ; cmd.value = (int)v; return cmd; }
+  }
+  return cmd;
+}
+
+void setup() {
+  Serial.begin(SERIAL_BAUD);
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+
+  // Crear queue y semáforo
+  cmdQueue = xQueueCreate(10, sizeof(Command_t));
+  statusSemaphore = xSemaphoreCreateBinary();
+
+  // Crear tareas FreeRTOS (core 1 para este ejemplo)
+  xTaskCreatePinnedToCore(uartTask,    "UART_Task",    4096, NULL, 3, NULL, 1);
+  xTaskCreatePinnedToCore(controlTask, "Control_Task", 4096, NULL, 2, NULL, 1);
+  xTaskCreatePinnedToCore(reporterTask,"Report_Task",  4096, NULL, 1, NULL, 1);
+
+  Serial.println();
+  Serial.println("=== Sistema UART + FreeRTOS iniciado ===");
+  Serial.println("Comandos: led on | led off | status | setfreq <ms>");
+  Serial.println("------------------------------------------");
+}
+
+void loop() {
+  vTaskDelay(portMAX_DELAY); // toda la lógica corre en tareas
+}
+
+// --- Tareas ---
+
+// Lee Serial línea por línea y encola comandos
+void uartTask(void* pvParameters) {
+  static char lineBuf[128];
+  size_t idx = 0;
+  for (;;) {
+    while (Serial.available() > 0) {
+      char c = (char)Serial.read();
+      // eco opcional
+      Serial.write(c);
+      if (c == '\r') continue;
+      if (c == '\n' || idx >= sizeof(lineBuf)-1) {
+        lineBuf[idx] = '\0';
+        if (idx > 0) {
+          Command_t cmd = parseCommand(lineBuf);
+          if (cmd.type == CMD_UNKNOWN) {
+            Serial.print("[UART] Comando desconocido: ");
+            Serial.println(lineBuf);
+            Serial.println("       Comandos válidos: led on | led off | status | setfreq <ms>");
+          } else {
+            if (xQueueSend(cmdQueue, &cmd, (TickType_t)10) != pdTRUE) {
+              Serial.println("[UART] ERROR: cola llena, comando descartado");
+            } else {
+              if (cmd.type == CMD_STATUS) {
+                xSemaphoreGive(statusSemaphore);
+              }
+            }
+          }
+        }
+        idx = 0;
+      } else {
+        lineBuf[idx++] = c;
+      }
+    }
+    vTaskDelay(10 / portTICK_PERIOD_MS);
+  }
+}
+
+// Consume comandos y actúa sobre el LED / intervalo
+void controlTask(void* pvParameters) {
+  Command_t inCmd;
+  for (;;) {
+    if (xQueueReceive(cmdQueue, &inCmd, portMAX_DELAY) == pdTRUE) {
+      switch (inCmd.type) {
+        case CMD_LED_ON:
+          digitalWrite(LED_PIN, HIGH);
+          Serial.println("[CONTROL] LED -> ON");
+          xSemaphoreGive(statusSemaphore);
+          break;
+        case CMD_LED_OFF:
+          digitalWrite(LED_PIN, LOW);
+          Serial.println("[CONTROL] LED -> OFF");
+          xSemaphoreGive(statusSemaphore);
+          break;
+        case CMD_SETFREQ:
+          if (inCmd.value < 200) inCmd.value = 200;
+          reportIntervalMs = (uint32_t) inCmd.value;
+          Serial.print("[CONTROL] Nuevo intervalo de reporte (ms): ");
+          Serial.println(reportIntervalMs);
+          xSemaphoreGive(statusSemaphore);
+          break;
+        case CMD_STATUS:
+          xSemaphoreGive(statusSemaphore);
+          break;
+        default:
+          Serial.println("[CONTROL] Comando no manejado");
+          break;
+      }
+    }
+  }
+}
+
+// Reporta periódicamente o al recibir semáforo
+void reporterTask(void* pvParameters) {
+  TickType_t lastWake = xTaskGetTickCount();
+  for (;;) {
+    TickType_t timeoutTicks = pdMS_TO_TICKS(reportIntervalMs);
+    if (xSemaphoreTake(statusSemaphore, timeoutTicks) == pdTRUE) {
+      Serial.println("[REPORT] --- Reporte solicitado (semaphore) ---");
+    } else {
+      Serial.println("[REPORT] --- Reporte periódico ---");
+    }
+    int ledVal = digitalRead(LED_PIN);
+    Serial.print("Estado LED: ");
+    Serial.println(ledVal ? "ON" : "OFF");
+    Serial.print("Intervalo reporte (ms): ");
+    Serial.println(reportIntervalMs);
+    Serial.println("------------------------------------------");
+    vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(reportIntervalMs));
+  }
+}
 
