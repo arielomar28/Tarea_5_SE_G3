@@ -1,1 +1,86 @@
+#include <Arduino.h>
+
+// ---------------- CONFIGURACIÓN ----------------
+#define LED_PIN 26   // LED integrado ESP32
+
+// ---------------- VARIABLES GLOBALES ----------------
+volatile int contadorTiempo = 0;
+SemaphoreHandle_t mutexContador;
+
+// ---------------- TAREA 1: TEMPORIZADOR ----------------
+void tareaTemporizador(void *parameter) {
+  while (true) {
+    xSemaphoreTake(mutexContador, portMAX_DELAY);
+    contadorTiempo++;
+    xSemaphoreGive(mutexContador);
+
+    vTaskDelay(500 / portTICK_PERIOD_MS); // 500 ms
+  }
+}
+
+// ---------------- TAREA 2: LED ----------------
+void tareaLED(void *parameter) {
+  pinMode(LED_PIN, OUTPUT);
+
+  while (true) {
+    digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+    vTaskDelay(300 / portTICK_PERIOD_MS); // 300 ms
+  }
+}
+
+// ---------------- TAREA 3: SERIAL ----------------
+void tareaSerial(void *parameter) {
+  while (true) {
+    xSemaphoreTake(mutexContador, portMAX_DELAY);
+    int valor = contadorTiempo;
+    xSemaphoreGive(mutexContador);
+
+    Serial.print("Tiempo contado: ");
+    Serial.println(valor);
+
+    vTaskDelay(1000 / portTICK_PERIOD_MS); // 1 segundo
+  }
+}
+
+// ---------------- SETUP ----------------
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("Sistema multitarea con FreeRTOS iniciado");
+
+  mutexContador = xSemaphoreCreateMutex();
+
+  xTaskCreate(
+    tareaTemporizador,
+    "Tarea_Temporizador",
+    2000,
+    NULL,
+    1,          // Prioridad baja
+    NULL
+  );
+
+  xTaskCreate(
+    tareaLED,
+    "Tarea_LED",
+    2000,
+    NULL,
+    2,          // Prioridad media
+    NULL
+  );
+
+  xTaskCreate(
+    tareaSerial,
+    "Tarea_Serial",
+    3000,
+    NULL,
+    3,          // Prioridad alta
+    NULL
+  );
+}
+
+// ---------------- LOOP ----------------
+void loop() {
+  // NO SE USA
+  // FreeRTOS se encarga de la ejecución
+}
 
